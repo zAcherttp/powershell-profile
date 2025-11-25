@@ -108,9 +108,6 @@ if ([bool]([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) 
     [System.Environment]::SetEnvironmentVariable('POWERSHELL_TELEMETRY_OPTOUT', 'true', [System.EnvironmentVariableTarget]::Machine)
 }
 
-# Initial GitHub.com connectivity check with 1 second timeout
-$global:canConnectToGitHub = Test-Connection github.com -Count 1 -Quiet -TimeoutSeconds 1
-
 # Import Modules and External Profiles
 # Ensure Terminal-Icons module is installed before importing
 if (-not (Get-Module -ListAvailable -Name Terminal-Icons)) {
@@ -148,19 +145,7 @@ function Update-Profile {
     }
 }
 
-# Check if not in debug mode AND (updateInterval is -1 OR file doesn't exist OR time difference is greater than the update interval)
-if (-not $debug -and `
-    ($updateInterval -eq -1 -or `
-      -not (Test-Path $timeFilePath) -or `
-      ((Get-Date) - [datetime]::ParseExact((Get-Content -Path $timeFilePath), 'yyyy-MM-dd', $null)).TotalDays -gt $updateInterval)) {
-
-    Update-Profile
-    $currentTime = Get-Date -Format 'yyyy-MM-dd'
-    $currentTime | Out-File -FilePath $timeFilePath
-
-} elseif ($debug) {
-    Write-Warning "Skipping profile update check in debug mode"
-}
+# Automatic update check disabled at startup - call Update-Profile manually if needed
 
 function Update-PowerShell {
     # If function "Update-PowerShell_Override" is defined in profile.ps1 file
@@ -192,19 +177,7 @@ function Update-PowerShell {
     }
 }
 
-# skip in debug mode
-# Check if not in debug mode AND (updateInterval is -1 OR file doesn't exist OR time difference is greater than the update interval)
-if (-not $debug -and `
-    ($updateInterval -eq -1 -or `
-     -not (Test-Path $timeFilePath) -or `
-     ((Get-Date).Date - [datetime]::ParseExact((Get-Content -Path $timeFilePath), 'yyyy-MM-dd', $null).Date).TotalDays -gt $updateInterval)) {
-
-    Update-PowerShell
-    $currentTime = Get-Date -Format 'yyyy-MM-dd'
-    $currentTime | Out-File -FilePath $timeFilePath
-} elseif ($debug) {
-    Write-Warning "Skipping PowerShell update in debug mode"
-}
+# Automatic PowerShell update check disabled at startup - call Update-PowerShell manually if needed
 
 function Clear-Cache {
     # If function "Clear-Cache_Override" is defined in profile.ps1 file
@@ -608,23 +581,25 @@ $scriptblock = {
 }
 Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock $scriptblock
 
+# Oh-my-posh initialization - using local theme to avoid network call at startup
 if (Get-Command -Name "Get-Theme_Override" -ErrorAction SilentlyContinue){
     Get-Theme_Override;
-} else {
-    oh-my-posh init pwsh --config https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/cobalt2.omp.json | Invoke-Expression
+} elseif (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
+    # Try local theme first, fall back to embedded theme if available
+    $localTheme = "$env:POSH_THEMES_PATH\cobalt2.omp.json"
+    if (Test-Path $localTheme) {
+        oh-my-posh init pwsh --config $localTheme | Invoke-Expression
+    } else {
+        # Use a built-in theme or skip if not available
+        Write-Host "Note: oh-my-posh theme not found at $localTheme" -ForegroundColor DarkGray
+    }
 }
 
+# Zoxide initialization
 if (Get-Command zoxide -ErrorAction SilentlyContinue) {
     Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
 } else {
-    Write-Host "zoxide command not found. Attempting to install via winget..."
-    try {
-        winget install -e --id ajeetdsouza.zoxide
-        Write-Host "zoxide installed successfully. Initializing..."
-        Invoke-Expression (& { (zoxide init --cmd z powershell | Out-String) })
-    } catch {
-        Write-Error "Failed to install zoxide. Error: $_"
-    }
+    Write-Host "zoxide command not found. Run 'winget install -e --id ajeetdsouza.zoxide' to install." -ForegroundColor DarkGray
 }
 
 # Help Function
